@@ -219,7 +219,6 @@ function drawRolandMarks(
   const rPt      = ROLAND_CIRCLE_R_MM * MM_TO_PT;
   const lLen     = ROLAND_LMARK_LEN   * MM_TO_PT;
   const lW       = ROLAND_LMARK_W     * MM_TO_PT;
-  const headerPt = ROLAND_HEADER_MM   * MM_TO_PT;
   const insetXPt = ROLAND_INSET_X_MM  * MM_TO_PT;
   const insetYPt = ROLAND_INSET_Y_MM  * MM_TO_PT;
   const foilWPt  = foilWidthMm * MM_TO_PT;
@@ -239,13 +238,6 @@ function drawRolandMarks(
   // Content boundary in pdf-lib coords
   const contentTopY = marginPt + contentHPt;   // top edge of content (in pdf-lib)
   const contentBotY = marginPt;                 // bottom edge of content
-
-  // ── Header bar (top of page) ─────────────────────────────────────────────
-  page.drawRectangle({
-    x: 0, y: pageHeightPt - headerPt,
-    width: foilWPt, height: headerPt,
-    color: rgb(0.05, 0.04, 0),
-  });
 
   // ── Registration circles ─────────────────────────────────────────────────
   const circleDefs = [
