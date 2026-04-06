@@ -259,31 +259,29 @@ function drawRolandMarks(
   }
 
   // ── L-marks at the four content boundary corners ─────────────────────────
-  // Each mark has:
-  //   - arm along the foil edge pointing toward the circle (away from content)
-  //   - arm inward along the content boundary
-  //
-  // pdf-lib Y axis goes UP, so "toward top circle" means increasing Y.
-  const lMarks = [
-    // TL content corner (0, contentTopY): arm UP, arm RIGHT
-    { cx: 0,       cy: contentTopY, ex: 0,       ey: contentTopY + lLen, ix: lLen,        iy: contentTopY },
-    // TR content corner (foilWPt, contentTopY): arm UP, arm LEFT
-    { cx: foilWPt, cy: contentTopY, ex: foilWPt, ey: contentTopY + lLen, ix: foilWPt - lLen, iy: contentTopY },
-    // BL content corner (0, contentBotY): arm DOWN, arm RIGHT
-    { cx: 0,       cy: contentBotY, ex: 0,       ey: contentBotY - lLen, ix: lLen,        iy: contentBotY },
-    // BR content corner (foilWPt, contentBotY): arm DOWN, arm LEFT
-    { cx: foilWPt, cy: contentBotY, ex: foilWPt, ey: contentBotY - lLen, ix: foilWPt - lLen, iy: contentBotY },
-  ];
-  for (const m of lMarks) {
-    // Vertical arm (along foil edge toward circle)
-    const armVX = m.ey > m.cy ? m.cx - lW / 2 : m.cx - lW / 2; // same x for both directions
-    const armVY = Math.min(m.cy, m.ey);
-    page.drawRectangle({ x: armVX, y: armVY, width: lW, height: lLen, color: rgb(0, 0, 0) });
-    // Horizontal arm (inward along content boundary)
-    const armHX = Math.min(m.cx, m.ix);
-    const armHY = m.cy - lW / 2;
-    page.drawRectangle({ x: armHX, y: armHY, width: lLen, height: lW, color: rgb(0, 0, 0) });
-  }
+  // pdf-lib Y axis goes UP.
+  // Each L sits exactly at the foil edge × content boundary crossing:
+  //   Left  corners: vertical arm at x=0 (flush with foil left edge)
+  //   Right corners: vertical arm at x=foilWPt-lW (flush with foil right edge)
+  //   Top   corners: vertical arm goes UP   (toward top circles, +Y)
+  //   Bottom corners: vertical arm goes DOWN (toward bottom circles, -Y)
+  //   Horizontal arm goes inward (right for left corners, left for right corners)
+
+  // TL (0, contentTopY) – arm up, arm right
+  page.drawRectangle({ x: 0,           y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: 0,           y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+
+  // TR (foilWPt, contentTopY) – arm up, arm left
+  page.drawRectangle({ x: foilWPt-lW,  y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: foilWPt-lLen,y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+
+  // BL (0, contentBotY) – arm down, arm right
+  page.drawRectangle({ x: 0,           y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: 0,           y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+
+  // BR (foilWPt, contentBotY) – arm down, arm left
+  page.drawRectangle({ x: foilWPt-lW,  y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: foilWPt-lLen,y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
 
   // ── Bottom-right sensor rectangle ────────────────────────────────────────
   // Right edge = BR circle left edge − BOT_GAP_MM
