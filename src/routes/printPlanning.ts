@@ -41,7 +41,7 @@ function getOposMarkXPositions(foilWidthMm: number): number[] {
 // ---------------------------------------------------------------------------
 const ROLAND_MARGIN_MM   = 30;
 const ROLAND_HEADER_MM   = 10;
-const ROLAND_CIRCLE_R_MM = 7;
+const ROLAND_CIRCLE_R_MM = 5;    // 10 mm diameter
 const ROLAND_INSET_X_MM  = 18;
 const ROLAND_INSET_Y_MM  = 20;
 const ROLAND_LMARK_LEN   = 7;
