@@ -39,16 +39,17 @@ function getOposMarkXPositions(foilWidthMm: number): number[] {
 // ---------------------------------------------------------------------------
 // Roland VersaWorks constants (must match frontend/src/lib/rolandMarks.ts)
 // ---------------------------------------------------------------------------
-const ROLAND_MARGIN_MM   = 30;
-const ROLAND_HEADER_MM   = 10;
-const ROLAND_CIRCLE_R_MM = 5;    // 10 mm diameter
-const ROLAND_INSET_X_MM  = 18;
-const ROLAND_INSET_Y_MM  = 20;
-const ROLAND_LMARK_LEN   = 7;
-const ROLAND_LMARK_W     = 1.5;
-const ROLAND_BOT_W_MM    = 20;
-const ROLAND_BOT_H_MM    = 4;
-const ROLAND_BOT_INSET_Y = 8;
+// Roland constants — must match frontend/src/lib/rolandMarks.ts
+const ROLAND_MARGIN_MM   = 15;   // = 2×r + 5 mm clearance
+const ROLAND_HEADER_MM   = 8;
+const ROLAND_CIRCLE_R_MM = 5;    // Ø10 mm
+const ROLAND_INSET_X_MM  = 5;    // = r — circles tangent to foil side edges
+const ROLAND_INSET_Y_MM  = 5;    // = r — circles tangent to outer margin edges
+const ROLAND_LMARK_LEN   = 2;    // mm — both L-mark arms
+const ROLAND_LMARK_W     = 0.5;  // mm — arm thickness
+const ROLAND_BOT_W_MM    = 7;    // bottom-right rectangle width
+const ROLAND_BOT_H_MM    = 4;    // bottom-right rectangle height
+const ROLAND_BOT_GAP_MM  = 4;    // gap from rect right edge to BR circle left edge
 
 // ---------------------------------------------------------------------------
 // POST /api/print-planning/pdf-info
@@ -221,66 +222,80 @@ function drawRolandMarks(
   const headerPt = ROLAND_HEADER_MM   * MM_TO_PT;
   const insetXPt = ROLAND_INSET_X_MM  * MM_TO_PT;
   const insetYPt = ROLAND_INSET_Y_MM  * MM_TO_PT;
+  const foilWPt  = foilWidthMm * MM_TO_PT;
 
   // pdf-lib uses bottom-left origin.
-  // Top margin spans:  pageHeightPt - marginPt  →  pageHeightPt
-  // Bottom margin spans: 0  →  marginPt
+  // Top margin:    y ∈ [marginPt + contentHPt, pageHeightPt]
+  // Content:       y ∈ [marginPt, marginPt + contentHPt]
+  // Bottom margin: y ∈ [0, marginPt]
+  //
+  // Circles touch the outer edges of each margin band:
+  //   top circles:    cy = pageHeightPt - insetYPt
+  //   bottom circles: cy = insetYPt
 
-  const topCircleCY = pageHeightPt - marginPt + insetYPt;   // Y of top circles
-  const botCircleCY = marginPt - insetYPt;                   // Y of bottom circles
+  const topCircleCY = pageHeightPt - insetYPt;
+  const botCircleCY = insetYPt;
 
-  const corners = [
-    { x: insetXPt,                  y: topCircleCY, side: 'tl' as const },
-    { x: foilWidthMm * MM_TO_PT - insetXPt, y: topCircleCY, side: 'tr' as const },
-    { x: insetXPt,                  y: botCircleCY, side: 'bl' as const },
-    { x: foilWidthMm * MM_TO_PT - insetXPt, y: botCircleCY, side: 'br' as const },
-  ];
+  // Content boundary in pdf-lib coords
+  const contentTopY = marginPt + contentHPt;   // top edge of content (in pdf-lib)
+  const contentBotY = marginPt;                 // bottom edge of content
 
-  // ── Header bar ──────────────────────────────────────────────────────────
+  // ── Header bar (top of page) ─────────────────────────────────────────────
   page.drawRectangle({
     x: 0, y: pageHeightPt - headerPt,
-    width: foilWidthMm * MM_TO_PT, height: headerPt,
+    width: foilWPt, height: headerPt,
     color: rgb(0.05, 0.04, 0),
   });
 
   // ── Registration circles ─────────────────────────────────────────────────
-  for (const c of corners) {
-    page.drawCircle({
-      x: c.x, y: c.y, size: rPt,
-      color: rgb(0, 0, 0),
-    });
+  const circleDefs = [
+    { x: insetXPt,            y: topCircleCY },
+    { x: foilWPt - insetXPt,  y: topCircleCY },
+    { x: insetXPt,            y: botCircleCY },
+    { x: foilWPt - insetXPt,  y: botCircleCY },
+  ];
+  for (const c of circleDefs) {
+    page.drawCircle({ x: c.x, y: c.y, size: rPt, color: rgb(0, 0, 0) });
   }
 
-  // ── L-shaped crop marks ───────────────────────────────────────────────────
-  for (const c of corners) {
-    const hSign = c.side === 'tl' || c.side === 'bl' ? 1 : -1;  // 1 = arm goes right
-    const vSign = c.side === 'tl' || c.side === 'tr' ? -1 : 1;  // 1 = arm goes up (pdf-lib coords)
-
-    // Horizontal arm
-    const hx = hSign === 1 ? c.x : c.x - lLen;
-    page.drawRectangle({
-      x: hx, y: c.y - lW / 2,
-      width: lLen, height: lW,
-      color: rgb(0, 0, 0),
-    });
-
-    // Vertical arm
-    const vy = vSign === 1 ? c.y : c.y - lLen;
-    page.drawRectangle({
-      x: c.x - lW / 2, y: vy,
-      width: lW, height: lLen,
-      color: rgb(0, 0, 0),
-    });
+  // ── L-marks at the four content boundary corners ─────────────────────────
+  // Each mark has:
+  //   - arm along the foil edge pointing toward the circle (away from content)
+  //   - arm inward along the content boundary
+  //
+  // pdf-lib Y axis goes UP, so "toward top circle" means increasing Y.
+  const lMarks = [
+    // TL content corner (0, contentTopY): arm UP, arm RIGHT
+    { cx: 0,       cy: contentTopY, ex: 0,       ey: contentTopY + lLen, ix: lLen,        iy: contentTopY },
+    // TR content corner (foilWPt, contentTopY): arm UP, arm LEFT
+    { cx: foilWPt, cy: contentTopY, ex: foilWPt, ey: contentTopY + lLen, ix: foilWPt - lLen, iy: contentTopY },
+    // BL content corner (0, contentBotY): arm DOWN, arm RIGHT
+    { cx: 0,       cy: contentBotY, ex: 0,       ey: contentBotY - lLen, ix: lLen,        iy: contentBotY },
+    // BR content corner (foilWPt, contentBotY): arm DOWN, arm LEFT
+    { cx: foilWPt, cy: contentBotY, ex: foilWPt, ey: contentBotY - lLen, ix: foilWPt - lLen, iy: contentBotY },
+  ];
+  for (const m of lMarks) {
+    // Vertical arm (along foil edge toward circle)
+    const armVX = m.ey > m.cy ? m.cx - lW / 2 : m.cx - lW / 2; // same x for both directions
+    const armVY = Math.min(m.cy, m.ey);
+    page.drawRectangle({ x: armVX, y: armVY, width: lW, height: lLen, color: rgb(0, 0, 0) });
+    // Horizontal arm (inward along content boundary)
+    const armHX = Math.min(m.cx, m.ix);
+    const armHY = m.cy - lW / 2;
+    page.drawRectangle({ x: armHX, y: armHY, width: lLen, height: lW, color: rgb(0, 0, 0) });
   }
 
-  // ── Bottom-centre rectangle ───────────────────────────────────────────────
-  const botRectCY  = ROLAND_BOT_INSET_Y * MM_TO_PT;
-  const botRectW   = ROLAND_BOT_W_MM * MM_TO_PT;
-  const botRectH   = ROLAND_BOT_H_MM * MM_TO_PT;
+  // ── Bottom-right sensor rectangle ────────────────────────────────────────
+  // Right edge = BR circle left edge − BOT_GAP_MM
+  const brCircleLeftX = foilWPt - insetXPt - rPt;
+  const botRectRightX = brCircleLeftX - ROLAND_BOT_GAP_MM * MM_TO_PT;
+  const botRectW      = ROLAND_BOT_W_MM * MM_TO_PT;
+  const botRectH      = ROLAND_BOT_H_MM * MM_TO_PT;
   page.drawRectangle({
-    x: (foilWidthMm * MM_TO_PT) / 2 - botRectW / 2,
-    y: botRectCY - botRectH / 2,
-    width: botRectW, height: botRectH,
+    x: botRectRightX - botRectW,
+    y: botCircleCY - botRectH / 2,
+    width:  botRectW,
+    height: botRectH,
     color: rgb(0, 0, 0),
   });
 }
