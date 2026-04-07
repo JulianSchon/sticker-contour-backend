@@ -35,7 +35,7 @@ router.post('/enhance', upload.single('image'), async (req, res) => {
           face_enhance: false,
         },
       }
-    ) as string;
+    ) as unknown as string;
 
     // Fetch the result image from Replicate's CDN
     const response = await fetch(output);
