@@ -230,7 +230,7 @@ export async function buildBitmap(
 ): Promise<ProcessedBitmap> {
   // PAD must be large enough to contain the full offset expansion.
   // Without enough pad the dilation hits the canvas edge and gets clipped.
-  const PAD = Math.max(10, offsetPx + 10);
+  const PAD = Math.max(10, Math.abs(offsetPx) + 10);
 
   // 1. Resize and normalise to PNG (preserves alpha, avoids JPEG re-compression artifacts)
   const meta = await sharp(inputBuffer).metadata();
@@ -339,8 +339,12 @@ export async function buildBitmap(
   const merged = close(filled, rw, rh, MERGE_RADIUS);
   const reHoled = fillInteriorHoles(merged, rw, rh);
 
-  // 6. Dilate for contour offset
-  const final = offsetPx > 0 ? dilate(reHoled, rw, rh, offsetPx) : reHoled;
+  // 6. Dilate or erode for contour offset
+  const final = offsetPx > 0
+    ? dilate(reHoled, rw, rh, offsetPx)
+    : offsetPx < 0
+    ? erode(reHoled, rw, rh, -offsetPx)
+    : reHoled;
 
   return { buffer: Buffer.from(final), width: rw, height: rh, pad: PAD };
 }

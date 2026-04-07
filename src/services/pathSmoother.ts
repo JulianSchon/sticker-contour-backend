@@ -19,11 +19,11 @@ export function clampParams(raw: {
     : 128;
 
   const kissOffset = typeof raw.kissOffset === 'number'
-    ? Math.max(0, Math.min(50, Math.round(raw.kissOffset)))
+    ? Math.max(-15, Math.min(50, Math.round(raw.kissOffset)))
     : 3;
 
   const perfOffset = typeof raw.perfOffset === 'number'
-    ? Math.max(0, Math.min(50, Math.round(raw.perfOffset)))
+    ? Math.max(-15, Math.min(50, Math.round(raw.perfOffset)))
     : 8;
 
   const smoothing = typeof raw.smoothing === 'number'
