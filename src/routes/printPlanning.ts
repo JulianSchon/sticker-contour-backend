@@ -41,7 +41,7 @@ function getOposMarkXPositions(foilWidthMm: number): number[] {
 // ---------------------------------------------------------------------------
 // Roland constants — must match frontend/src/lib/rolandMarks.ts
 const ROLAND_MARGIN_MM   = 15;   // = 2×r + 5 mm clearance
-const ROLAND_HEADER_MM   = 8;
+const ROLAND_BLEED_MM    = 5;    // extra page padding so circles aren't clipped at edge
 const ROLAND_CIRCLE_R_MM = 5;    // Ø10 mm
 const ROLAND_INSET_X_MM  = 5;    // = r — circles tangent to foil side edges
 const ROLAND_INSET_Y_MM  = 5;    // = r — circles tangent to outer margin edges
@@ -112,18 +112,22 @@ router.post(
       const MM_TO_PT = 72 / 25.4;
 
       const marginMm = regmarkType === 'roland' ? ROLAND_MARGIN_MM : OPOS_MARGIN_MM;
+      const bleedMm  = regmarkType === 'roland' ? ROLAND_BLEED_MM  : 0;
 
       const foilWidthPt  = foilWidthMm  * MM_TO_PT;
       const contentHPt   = totalLengthMm * MM_TO_PT;
       const marginPt     = marginMm * MM_TO_PT;
-      const pageHeightPt = contentHPt + marginPt * 2;
+      const bleedPt      = bleedMm  * MM_TO_PT;
+      // Roland: page is wider/taller by bleed on all sides so circles aren't clipped
+      const pageWidthPt  = foilWidthPt  + bleedPt * 2;
+      const pageHeightPt = contentHPt + marginPt * 2 + bleedPt * 2;
 
       const sourceDocs = await Promise.all(
         files.map(f => PDFDocument.load(f.buffer))
       );
 
       const outDoc = await PDFDocument.create();
-      const outPage = outDoc.addPage([foilWidthPt, pageHeightPt]);
+      const outPage = outDoc.addPage([pageWidthPt, pageHeightPt]);
 
       // ── Draw sticker copies ──────────────────────────────────────────────
       for (const copy of copies) {
@@ -131,8 +135,8 @@ router.post(
         if (!srcDoc) continue;
         const [embeddedPage] = await outDoc.embedPdf(srcDoc, [0]);
 
-        const xPt = copy.x * MM_TO_PT;
-        const yPt = marginPt + contentHPt
+        const xPt = bleedPt + copy.x * MM_TO_PT;
+        const yPt = bleedPt + marginPt + contentHPt
                   - copy.y * MM_TO_PT
                   - copy.heightMm * MM_TO_PT;
 
@@ -156,7 +160,7 @@ router.post(
 
       // ── Draw registration marks ──────────────────────────────────────────
       if (regmarkType === 'roland') {
-        drawRolandMarks(outPage, foilWidthMm, totalLengthMm, marginPt, contentHPt, pageHeightPt, MM_TO_PT);
+        drawRolandMarks(outPage, foilWidthMm, totalLengthMm, marginPt, contentHPt, pageHeightPt, bleedPt, MM_TO_PT);
       } else {
         drawOposMarks(outPage, foilWidthMm, marginPt, contentHPt, pageHeightPt, MM_TO_PT);
       }
@@ -214,6 +218,7 @@ function drawRolandMarks(
   marginPt: number,
   contentHPt: number,
   pageHeightPt: number,
+  bleedPt: number,
   MM_TO_PT: number,
 ): void {
   const rPt      = ROLAND_CIRCLE_R_MM * MM_TO_PT;
@@ -223,28 +228,26 @@ function drawRolandMarks(
   const insetYPt = ROLAND_INSET_Y_MM  * MM_TO_PT;
   const foilWPt  = foilWidthMm * MM_TO_PT;
 
-  // pdf-lib uses bottom-left origin.
-  // Top margin:    y ∈ [marginPt + contentHPt, pageHeightPt]
-  // Content:       y ∈ [marginPt, marginPt + contentHPt]
-  // Bottom margin: y ∈ [0, marginPt]
+  // All coordinates are offset by bleedPt so the foil content starts at (bleedPt, bleedPt)
+  // in pdf-lib's bottom-left coordinate system.
   //
-  // Circles touch the outer edges of each margin band:
-  //   top circles:    cy = pageHeightPt - insetYPt
-  //   bottom circles: cy = insetYPt
+  // Circles sit at insetX/Y from the foil edges (tangent), which now have space to breathe.
+  //   top circles:    cy = bleedPt + marginPt + contentHPt + insetYPt
+  //   bottom circles: cy = bleedPt + insetYPt  (from bottom of page)
 
-  const topCircleCY = pageHeightPt - insetYPt;
-  const botCircleCY = insetYPt;
+  const topCircleCY = bleedPt + marginPt + contentHPt + insetYPt;
+  const botCircleCY = bleedPt + insetYPt;
 
-  // Content boundary in pdf-lib coords
-  const contentTopY = marginPt + contentHPt;   // top edge of content (in pdf-lib)
-  const contentBotY = marginPt;                 // bottom edge of content
+  // Content boundary in pdf-lib coords (offset by bleed)
+  const contentTopY = bleedPt + marginPt + contentHPt;
+  const contentBotY = bleedPt + marginPt;
 
   // ── Registration circles ─────────────────────────────────────────────────
   const circleDefs = [
-    { x: insetXPt,            y: topCircleCY },
-    { x: foilWPt - insetXPt,  y: topCircleCY },
-    { x: insetXPt,            y: botCircleCY },
-    { x: foilWPt - insetXPt,  y: botCircleCY },
+    { x: bleedPt + insetXPt,            y: topCircleCY },
+    { x: bleedPt + foilWPt - insetXPt,  y: topCircleCY },
+    { x: bleedPt + insetXPt,            y: botCircleCY },
+    { x: bleedPt + foilWPt - insetXPt,  y: botCircleCY },
   ];
   for (const c of circleDefs) {
     page.drawCircle({ x: c.x, y: c.y, size: rPt, color: rgb(0, 0, 0) });
@@ -259,25 +262,28 @@ function drawRolandMarks(
   //   Bottom corners: vertical arm goes DOWN (toward bottom circles, -Y)
   //   Horizontal arm goes inward (right for left corners, left for right corners)
 
-  // TL (0, contentTopY) – arm up, arm right
-  page.drawRectangle({ x: 0,           y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
-  page.drawRectangle({ x: 0,           y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+  const lx0 = bleedPt;              // left foil edge in page coords
+  const lx1 = bleedPt + foilWPt;   // right foil edge in page coords
 
-  // TR (foilWPt, contentTopY) – arm up, arm left
-  page.drawRectangle({ x: foilWPt-lW,  y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
-  page.drawRectangle({ x: foilWPt-lLen,y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+  // TL – arm up, arm right
+  page.drawRectangle({ x: lx0,        y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: lx0,        y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
 
-  // BL (0, contentBotY) – arm down, arm right
-  page.drawRectangle({ x: 0,           y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
-  page.drawRectangle({ x: 0,           y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+  // TR – arm up, arm left
+  page.drawRectangle({ x: lx1-lW,     y: contentTopY,        width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: lx1-lLen,   y: contentTopY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
 
-  // BR (foilWPt, contentBotY) – arm down, arm left
-  page.drawRectangle({ x: foilWPt-lW,  y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
-  page.drawRectangle({ x: foilWPt-lLen,y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+  // BL – arm down, arm right
+  page.drawRectangle({ x: lx0,        y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: lx0,        y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
+
+  // BR – arm down, arm left
+  page.drawRectangle({ x: lx1-lW,     y: contentBotY - lLen, width: lW,   height: lLen, color: rgb(0,0,0) });
+  page.drawRectangle({ x: lx1-lLen,   y: contentBotY - lW/2, width: lLen, height: lW,   color: rgb(0,0,0) });
 
   // ── Bottom-right sensor rectangle ────────────────────────────────────────
   // Right edge = BR circle left edge − BOT_GAP_MM
-  const brCircleLeftX = foilWPt - insetXPt - rPt;
+  const brCircleLeftX = bleedPt + foilWPt - insetXPt - rPt;
   const botRectRightX = brCircleLeftX - ROLAND_BOT_GAP_MM * MM_TO_PT;
   const botRectW      = ROLAND_BOT_W_MM * MM_TO_PT;
   const botRectH      = ROLAND_BOT_H_MM * MM_TO_PT;
