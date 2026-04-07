@@ -26,6 +26,8 @@ app.use(cors({
     if (/^https:\/\/[^.]+\.vercel\.app$/.test(origin)) return callback(null, true);
     // Allow nimscut.com and www.nimscut.com
     if (/^https:\/\/(www\.)?nimscut\.com$/.test(origin)) return callback(null, true);
+    // Allow cutz.nimstick.se
+    if (origin === 'https://cutz.nimstick.se') return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
 }));
