@@ -25,9 +25,9 @@ router.post('/enhance', upload.single('image'), async (req, res) => {
     const base64 = pngBuffer.toString('base64');
     const dataUrl = `data:image/png;base64,${base64}`;
 
-    // Run Real-ESRGAN 4x upscale
+    // Run Real-ESRGAN 4x upscale (no pinned version — uses latest deployment)
     const output = await replicate.run(
-      'nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee2d209f07337fb6ecb5f',
+      'nightmareai/real-esrgan' as `${string}/${string}`,
       {
         input: {
           image:  dataUrl,
