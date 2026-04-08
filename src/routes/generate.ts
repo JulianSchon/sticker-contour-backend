@@ -36,6 +36,7 @@ router.post(
         smoothing: parseFloat(req.body.smoothing),
         enclose: req.body.enclose,
         cutMode: req.body.cutMode,
+        shapeType: req.body.shapeType,
       });
 
       const meta = await sharp(req.file.buffer).metadata();
@@ -132,6 +133,7 @@ router.post(
         smoothing: parseFloat(req.body.smoothing),
         enclose: req.body.enclose,
         cutMode: req.body.cutMode,
+        shapeType: req.body.shapeType,
       });
 
       const meta = await sharp(req.file.buffer).metadata();
