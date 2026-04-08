@@ -7,6 +7,7 @@ import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf } from '../services/pdfGenerator';
 import { translateSvgPath } from '../utils/svgPathParser';
 import { dropInnerHoles, keepOutermostPath } from '../utils/pathFilter';
+import { buildGeometricPath } from '../services/geometricPaths';
 import type { ContourPreviewResponse } from '../types/contour';
 
 const router = Router();
@@ -41,13 +42,31 @@ router.post(
       const originalWidth = meta.width ?? 0;
       const originalHeight = meta.height ?? 0;
 
+      // Geometric shape: skip bitmap tracing, generate path directly
+      if (params.shapeType !== 'contour') {
+        const PAD = 10;
+        const kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset);
+        const perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset)
+          : null;
+        const response: ContourPreviewResponse = {
+          kissSvgPath,
+          perfSvgPath,
+          width: originalWidth,
+          height: originalHeight,
+          originalWidth,
+          originalHeight,
+          pad: PAD,
+        };
+        res.json(response);
+        return;
+      }
+
       const needsPerf = params.cutMode === 'perf' || params.cutMode === 'both';
       const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
 
       const applyEnclose = (path: string) => {
-        // Always drop inner holes to prevent gaps from disconnected hole paths.
         const noHoles = dropInnerHoles(path);
-        // With enclose=true, further reduce to the single largest outer piece.
         return params.enclose ? keepOutermostPath(noHoles) : noHoles;
       };
 
@@ -80,7 +99,6 @@ router.post(
         ));
       }
 
-      // The canvas must be large enough to show the path that extends furthest out.
       const displayPad = Math.max(kissPad, perfPad);
 
       const response: ContourPreviewResponse = {
@@ -120,43 +138,59 @@ router.post(
       const originalWidth = meta.width ?? 0;
       const originalHeight = meta.height ?? 0;
 
-      const needsPerf = params.cutMode === 'perf' || params.cutMode === 'both';
-      const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
-
-      const applyEnclose = (path: string) => {
-        // Always drop inner holes to prevent gaps from disconnected hole paths.
-        const noHoles = dropInnerHoles(path);
-        // With enclose=true, further reduce to the single largest outer piece.
-        return params.enclose ? keepOutermostPath(noHoles) : noHoles;
-      };
-
-      const kissBitmap = await buildBitmap(
-        req.file.buffer,
-        params.threshold,
-        needsKiss ? params.kissOffset : 0
-      );
-      const kissPad = kissBitmap.pad;
-      const unpaddedW = kissBitmap.width - kissPad * 2;
-      const unpaddedH = kissBitmap.height - kissPad * 2;
-
-      const kissSvgPath = applyEnclose(translateSvgPath(
-        await traceBitmap(kissBitmap, { smoothing: params.smoothing }),
-        -kissPad, -kissPad
-      ));
-
+      let kissSvgPath: string;
       let perfSvgPath: string | null = null;
-      let perfPad = kissPad;
-      if (needsPerf) {
-        const perfBitmap = await buildBitmap(
+      let unpaddedW: number;
+      let unpaddedH: number;
+      let kissPad: number;
+      let perfPad: number;
+
+      if (params.shapeType !== 'contour') {
+        // Geometric shape — no bitmap processing needed
+        kissPad = 10;
+        perfPad = 10;
+        unpaddedW = originalWidth;
+        unpaddedH = originalHeight;
+        kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset);
+        perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset)
+          : null;
+      } else {
+        const needsPerf = params.cutMode === 'perf' || params.cutMode === 'both';
+        const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
+
+        const applyEnclose = (path: string) => {
+          const noHoles = dropInnerHoles(path);
+          return params.enclose ? keepOutermostPath(noHoles) : noHoles;
+        };
+
+        const kissBitmap = await buildBitmap(
           req.file.buffer,
           params.threshold,
-          params.perfOffset
+          needsKiss ? params.kissOffset : 0
         );
-        perfPad = perfBitmap.pad;
-        perfSvgPath = applyEnclose(translateSvgPath(
-          await traceBitmap(perfBitmap, { smoothing: params.smoothing }),
-          -perfPad, -perfPad
+        kissPad = kissBitmap.pad;
+        unpaddedW = kissBitmap.width - kissPad * 2;
+        unpaddedH = kissBitmap.height - kissPad * 2;
+
+        kissSvgPath = applyEnclose(translateSvgPath(
+          await traceBitmap(kissBitmap, { smoothing: params.smoothing }),
+          -kissPad, -kissPad
         ));
+
+        perfPad = kissPad;
+        if (needsPerf) {
+          const perfBitmap = await buildBitmap(
+            req.file.buffer,
+            params.threshold,
+            params.perfOffset
+          );
+          perfPad = perfBitmap.pad;
+          perfSvgPath = applyEnclose(translateSvgPath(
+            await traceBitmap(perfBitmap, { smoothing: params.smoothing }),
+            -perfPad, -perfPad
+          ));
+        }
       }
 
       const pdfBuffer = await generateContourPdf(

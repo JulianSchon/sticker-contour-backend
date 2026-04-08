@@ -1,3 +1,5 @@
+export type ShapeType = 'contour' | 'circle' | 'square' | 'triangle';
+
 export interface ContourParams {
   threshold: number;      // 1-255
   kissOffset: number;     // px — offset for the solid kiss cut line
@@ -5,6 +7,7 @@ export interface ContourParams {
   smoothing: number;      // 0-4
   enclose: boolean;       // keep only the outermost contour, drop inner cuts
   cutMode: 'kiss' | 'perf' | 'both';
+  shapeType: ShapeType;
 }
 
 export interface ContourPreviewResponse {
