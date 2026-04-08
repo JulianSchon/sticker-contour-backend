@@ -9,13 +9,16 @@ export function buildGeometricPath(
   height: number,
   shape: ShapeType,
   offsetPx: number,
-  sizePct: number  // 10-100
+  sizePct: number,      // 10-100
+  moveXPct = 0,         // -50 to 50
+  moveYPct = 0          // -50 to 50
 ): string {
   const s = Math.max(0.1, Math.min(1, sizePct / 100));
   const sw = width  * s;
   const sh = height * s;
-  const ox = (width  - sw) / 2;  // left offset to center shape
-  const oy = (height - sh) / 2;  // top offset to center shape
+  // Center + user move offset
+  const ox = (width  - sw) / 2 + (width  * moveXPct / 100);
+  const oy = (height - sh) / 2 + (height * moveYPct / 100);
   const o = offsetPx;
 
   switch (shape) {

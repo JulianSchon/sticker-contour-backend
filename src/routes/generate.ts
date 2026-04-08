@@ -38,6 +38,8 @@ router.post(
         cutMode: req.body.cutMode,
         shapeType: req.body.shapeType,
         shapeSize: parseFloat(req.body.shapeSize),
+        shapeOffsetX: parseFloat(req.body.shapeOffsetX),
+        shapeOffsetY: parseFloat(req.body.shapeOffsetY),
       });
 
       const meta = await sharp(req.file.buffer).metadata();
@@ -47,9 +49,9 @@ router.post(
       // Geometric shape: skip bitmap tracing, generate path directly
       if (params.shapeType !== 'contour') {
         const PAD = geometricPad(Math.max(params.kissOffset, params.perfOffset));
-        const kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize);
+        const kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY);
         const perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
-          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize)
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY)
           : null;
         const response: ContourPreviewResponse = {
           kissSvgPath,
@@ -136,6 +138,8 @@ router.post(
         cutMode: req.body.cutMode,
         shapeType: req.body.shapeType,
         shapeSize: parseFloat(req.body.shapeSize),
+        shapeOffsetX: parseFloat(req.body.shapeOffsetX),
+        shapeOffsetY: parseFloat(req.body.shapeOffsetY),
       });
 
       const meta = await sharp(req.file.buffer).metadata();
@@ -155,9 +159,9 @@ router.post(
         perfPad = geometricPad(params.perfOffset);
         unpaddedW = originalWidth;
         unpaddedH = originalHeight;
-        kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize);
+        kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY);
         perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
-          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize)
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY)
           : null;
       } else {
         const needsPerf = params.cutMode === 'perf' || params.cutMode === 'both';

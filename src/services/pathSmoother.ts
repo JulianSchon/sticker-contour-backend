@@ -15,6 +15,8 @@ export function clampParams(raw: {
   cutMode?: unknown;
   shapeType?: unknown;
   shapeSize?: unknown;
+  shapeOffsetX?: unknown;
+  shapeOffsetY?: unknown;
 }) {
   const threshold = typeof raw.threshold === 'number'
     ? Math.max(1, Math.min(255, Math.round(raw.threshold)))
@@ -49,5 +51,12 @@ export function clampParams(raw: {
     ? Math.max(10, Math.min(100, Math.round(raw.shapeSize)))
     : 90;
 
-  return { threshold, kissOffset, perfOffset, smoothing, enclose, cutMode, shapeType, shapeSize };
+  const shapeOffsetX = typeof raw.shapeOffsetX === 'number'
+    ? Math.max(-50, Math.min(50, raw.shapeOffsetX))
+    : 0;
+  const shapeOffsetY = typeof raw.shapeOffsetY === 'number'
+    ? Math.max(-50, Math.min(50, raw.shapeOffsetY))
+    : 0;
+
+  return { threshold, kissOffset, perfOffset, smoothing, enclose, cutMode, shapeType, shapeSize, shapeOffsetX, shapeOffsetY };
 }

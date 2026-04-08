@@ -88,7 +88,7 @@ interface ExportLayout {
   foilWidthMm: number;
   totalLengthMm: number;
   copies: ExportCopy[];
-  regmarkType?: 'opos' | 'roland';
+  regmarkType?: 'opos' | 'roland' | 'none';
 }
 
 router.post(
@@ -111,7 +111,9 @@ router.post(
       const { foilWidthMm, totalLengthMm, copies, regmarkType = 'opos' } = layout;
       const MM_TO_PT = 72 / 25.4;
 
-      const marginMm = regmarkType === 'roland' ? ROLAND_MARGIN_MM : OPOS_MARGIN_MM;
+      const marginMm = regmarkType === 'roland' ? ROLAND_MARGIN_MM
+        : regmarkType === 'none' ? 0
+        : OPOS_MARGIN_MM;
       const bleedMm  = regmarkType === 'roland' ? ROLAND_BLEED_MM  : 0;
 
       const foilWidthPt  = foilWidthMm  * MM_TO_PT;
@@ -161,7 +163,7 @@ router.post(
       // ── Draw registration marks ──────────────────────────────────────────
       if (regmarkType === 'roland') {
         drawRolandMarks(outPage, foilWidthMm, totalLengthMm, marginPt, contentHPt, pageHeightPt, bleedPt, MM_TO_PT);
-      } else {
+      } else if (regmarkType !== 'none') {
         drawOposMarks(outPage, foilWidthMm, marginPt, contentHPt, pageHeightPt, MM_TO_PT);
       }
 
