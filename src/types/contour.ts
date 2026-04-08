@@ -8,6 +8,7 @@ export interface ContourParams {
   enclose: boolean;       // keep only the outermost contour, drop inner cuts
   cutMode: 'kiss' | 'perf' | 'both';
   shapeType: ShapeType;
+  shapeSize: number; // 10-100 percent
 }
 
 export interface ContourPreviewResponse {

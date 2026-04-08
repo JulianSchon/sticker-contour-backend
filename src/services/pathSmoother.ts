@@ -14,6 +14,7 @@ export function clampParams(raw: {
   enclose?: unknown;
   cutMode?: unknown;
   shapeType?: unknown;
+  shapeSize?: unknown;
 }) {
   const threshold = typeof raw.threshold === 'number'
     ? Math.max(1, Math.min(255, Math.round(raw.threshold)))
@@ -44,5 +45,9 @@ export function clampParams(raw: {
     : raw.shapeType === 'triangle' ? 'triangle' as const
     : 'contour' as const;
 
-  return { threshold, kissOffset, perfOffset, smoothing, enclose, cutMode, shapeType };
+  const shapeSize = typeof raw.shapeSize === 'number'
+    ? Math.max(10, Math.min(100, Math.round(raw.shapeSize)))
+    : 90;
+
+  return { threshold, kissOffset, perfOffset, smoothing, enclose, cutMode, shapeType, shapeSize };
 }

@@ -7,7 +7,7 @@ import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf } from '../services/pdfGenerator';
 import { translateSvgPath } from '../utils/svgPathParser';
 import { dropInnerHoles, keepOutermostPath } from '../utils/pathFilter';
-import { buildGeometricPath } from '../services/geometricPaths';
+import { buildGeometricPath, geometricPad } from '../services/geometricPaths';
 import type { ContourPreviewResponse } from '../types/contour';
 
 const router = Router();
@@ -37,6 +37,7 @@ router.post(
         enclose: req.body.enclose,
         cutMode: req.body.cutMode,
         shapeType: req.body.shapeType,
+        shapeSize: parseFloat(req.body.shapeSize),
       });
 
       const meta = await sharp(req.file.buffer).metadata();
@@ -45,10 +46,10 @@ router.post(
 
       // Geometric shape: skip bitmap tracing, generate path directly
       if (params.shapeType !== 'contour') {
-        const PAD = 10;
-        const kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset);
+        const PAD = geometricPad(Math.max(params.kissOffset, params.perfOffset));
+        const kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize);
         const perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
-          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset)
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize)
           : null;
         const response: ContourPreviewResponse = {
           kissSvgPath,
@@ -134,6 +135,7 @@ router.post(
         enclose: req.body.enclose,
         cutMode: req.body.cutMode,
         shapeType: req.body.shapeType,
+        shapeSize: parseFloat(req.body.shapeSize),
       });
 
       const meta = await sharp(req.file.buffer).metadata();
@@ -149,13 +151,13 @@ router.post(
 
       if (params.shapeType !== 'contour') {
         // Geometric shape — no bitmap processing needed
-        kissPad = 10;
-        perfPad = 10;
+        kissPad = geometricPad(params.kissOffset);
+        perfPad = geometricPad(params.perfOffset);
         unpaddedW = originalWidth;
         unpaddedH = originalHeight;
-        kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset);
+        kissSvgPath = buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.kissOffset, params.shapeSize);
         perfSvgPath = (params.cutMode === 'perf' || params.cutMode === 'both')
-          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset)
+          ? buildGeometricPath(originalWidth, originalHeight, params.shapeType, params.perfOffset, params.shapeSize)
           : null;
       } else {
         const needsPerf = params.cutMode === 'perf' || params.cutMode === 'both';
