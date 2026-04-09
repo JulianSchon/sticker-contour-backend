@@ -201,8 +201,16 @@ router.post(
         }
       }
 
+      // Resize image to bitmap dimensions before PDF embedding — avoids
+      // encoding a full-res (e.g. 6000px) image in a 2000px-based PDF.
+      const imageForPdf = await sharp(req.file.buffer)
+        .rotate()
+        .resize(unpaddedW, unpaddedH, { fit: 'fill' })
+        .png()
+        .toBuffer();
+
       const pdfBuffer = await generateContourPdf(
-        req.file.buffer,
+        imageForPdf,
         kissSvgPath,
         perfSvgPath,
         unpaddedW,
