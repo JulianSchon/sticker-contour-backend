@@ -23,12 +23,12 @@ export function clampParams(raw: {
     : 128;
 
   const kissOffset = typeof raw.kissOffset === 'number'
-    ? Math.max(-15, Math.min(50, Math.round(raw.kissOffset)))
-    : 3;
+    ? Math.max(-25, Math.min(75, Math.round(raw.kissOffset)))
+    : 35;
 
   const perfOffset = typeof raw.perfOffset === 'number'
-    ? Math.max(-15, Math.min(50, Math.round(raw.perfOffset)))
-    : 8;
+    ? Math.max(-25, Math.min(75, Math.round(raw.perfOffset)))
+    : 35;
 
   const smoothing = typeof raw.smoothing === 'number'
     ? Math.max(0, Math.min(4, Math.round(raw.smoothing)))
