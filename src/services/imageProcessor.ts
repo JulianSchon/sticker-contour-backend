@@ -175,8 +175,9 @@ const open  = (d: Uint8Array, w: number, h: number, r: number) => dilate(erode(d
  * pixel copies the colour of the nearest solid edge pixel — so the colour
  * extends straight out with no averaging (averaging smeared metallic/multicolour
  * edges into rainbow streaks). Only solid pixels (alpha ≥ threshold) are used as
- * sources, and only the OUTER (border-connected) transparent region is filled —
- * interior holes and the anti-aliased edge ring are left untouched.
+ * sources. The outer (border-connected) transparent margin AND the semi-
+ * transparent anti-aliased edge ring are filled/blended so the artwork edge sits
+ * on the bleed colour (no white gap); interior holes are left untouched.
  */
 export function bleedColors(rgba: Buffer, width: number, height: number, radius: number): Buffer {
   const W = width, H = height, N = W * H;
@@ -184,13 +185,15 @@ export function bleedColors(rgba: Buffer, width: number, height: number, radius:
   const out = new Uint8Array(rgba); // working copy (RGBA)
   if (r <= 0) return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
 
-  const ALPHA_MIN = 128; // only near-opaque pixels seed the bleed colour
+  const ALPHA_MIN = 200; // pixels this opaque seed the bleed colour; below it
+                         // (incl. the anti-aliased edge ring) gets filled/blended
 
-  // Outer (border-connected) fully-transparent region — never fill interior
-  // holes or the AA ring (alpha > 0).
+  // Outer (border-connected) region that isn't solid — the transparent margin
+  // PLUS the semi-transparent AA edge ring. Interior holes (not border-reachable)
+  // and the solid artwork are excluded.
   const outside = new Uint8Array(N);
   const stack: number[] = [];
-  const seed = (p: number) => { if (rgba[p * 4 + 3] === 0 && !outside[p]) { outside[p] = 1; stack.push(p); } };
+  const seed = (p: number) => { if (rgba[p * 4 + 3] < ALPHA_MIN && !outside[p]) { outside[p] = 1; stack.push(p); } };
   for (let x = 0; x < W; x++) { seed(x); seed((H - 1) * W + x); }
   for (let y = 0; y < H; y++) { seed(y * W); seed(y * W + W - 1); }
   while (stack.length) {
@@ -225,10 +228,18 @@ export function bleedColors(rgba: Buffer, width: number, height: number, radius:
     if (x > 0 && y < H - 1) relax(p, p + W - 1, D2);
   }
 
+  // Fill the outer region with the nearest solid colour, then composite the
+  // ORIGINAL pixel over it. Transparent margin → solid bleed colour; AA edge →
+  // original blended onto the bleed (no white gap); all made opaque.
   for (let p = 0; p < N; p++) {
     if (!outside[p] || src[p] < 0 || dist[p] > r) continue;
     const s = src[p] * 4, i = p * 4;
-    out[i] = rgba[s]; out[i + 1] = rgba[s + 1]; out[i + 2] = rgba[s + 2]; out[i + 3] = 255;
+    const a = rgba[i + 3]; // 0..(ALPHA_MIN-1)
+    const inv = 255 - a;
+    out[i]     = ((rgba[i]     * a + rgba[s]     * inv) / 255) | 0;
+    out[i + 1] = ((rgba[i + 1] * a + rgba[s + 1] * inv) / 255) | 0;
+    out[i + 2] = ((rgba[i + 2] * a + rgba[s + 2] * inv) / 255) | 0;
+    out[i + 3] = 255;
   }
   return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
 }
