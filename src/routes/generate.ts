@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
-import { buildBitmap } from '../services/imageProcessor';
+import { buildBitmap, bleedColors } from '../services/imageProcessor';
 import { traceBitmap } from '../services/contourTracer';
 import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf } from '../services/pdfGenerator';
@@ -209,8 +209,29 @@ router.post(
         .png()
         .toBuffer();
 
+      // ── Print bleed ───────────────────────────────────────────────────────
+      // Extend edge colours outward past the cut so a misaligned cut still lands
+      // on ink (not white substrate). Pad the artwork with a transparent border,
+      // bleed colours into it, and tell the PDF the image grew by `bleedPad`.
+      const BLEED_MM = 3;
+      const BLEED_PX = Math.round((BLEED_MM * 300) / 25.4); // ~35px at 300 DPI
+      const maxOffsetPx = Math.max(
+        Math.abs(params.kissOffset) || 0,
+        Math.abs(params.perfOffset) || 0,
+      );
+      const bleedPad = Math.ceil(maxOffsetPx) + BLEED_PX + 4; // reach past the cut + bleed
+      const paddedRaw = await sharp(imageForPdf)
+        .ensureAlpha()
+        .extend({ top: bleedPad, bottom: bleedPad, left: bleedPad, right: bleedPad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const bledRaw = bleedColors(paddedRaw.data, paddedRaw.info.width, paddedRaw.info.height, bleedPad);
+      const bledImage = await sharp(bledRaw, {
+        raw: { width: paddedRaw.info.width, height: paddedRaw.info.height, channels: 4 },
+      }).png().toBuffer();
+
       const pdfBuffer = await generateContourPdf(
-        imageForPdf,
+        bledImage,
         kissSvgPath,
         perfSvgPath,
         unpaddedW,
@@ -219,7 +240,9 @@ router.post(
         originalHeight,
         kissPad,
         perfPad,
-        params
+        params,
+        bleedPad,
+        BLEED_PX,
       );
 
       res.setHeader('Content-Type', 'application/pdf');
