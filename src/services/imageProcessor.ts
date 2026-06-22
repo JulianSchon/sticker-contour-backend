@@ -170,24 +170,27 @@ const open  = (d: Uint8Array, w: number, h: number, r: number) => dilate(erode(d
 // ---------------------------------------------------------------------------
 
 /**
- * Grows opaque colours outward by `radius` px via layered dilation. Each newly
- * filled pixel takes the average colour of its already-filled neighbours. Only
- * the OUTER (border-connected) transparent region is filled — interior holes
- * are left untouched.
+ * Extends the artwork's edge colours outward by `radius` px using a
+ * **nearest-opaque-colour** fill (a two-pass distance transform). Each filled
+ * pixel copies the colour of the nearest solid edge pixel — so the colour
+ * extends straight out with no averaging (averaging smeared metallic/multicolour
+ * edges into rainbow streaks). Only solid pixels (alpha ≥ threshold) are used as
+ * sources, and only the OUTER (border-connected) transparent region is filled —
+ * interior holes and the anti-aliased edge ring are left untouched.
  */
 export function bleedColors(rgba: Buffer, width: number, height: number, radius: number): Buffer {
   const W = width, H = height, N = W * H;
-  const r = Math.round(radius);
-  const cur = new Uint8Array(rgba); // working copy (RGBA)
-  if (r <= 0) return Buffer.from(cur.buffer, cur.byteOffset, cur.byteLength);
+  const r = radius;
+  const out = new Uint8Array(rgba); // working copy (RGBA)
+  if (r <= 0) return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
 
-  const filled = new Uint8Array(N);
-  for (let p = 0; p < N; p++) filled[p] = rgba[p * 4 + 3] !== 0 ? 1 : 0;
+  const ALPHA_MIN = 128; // only near-opaque pixels seed the bleed colour
 
-  // Outer (border-connected) transparent region — never fill interior holes.
+  // Outer (border-connected) fully-transparent region — never fill interior
+  // holes or the AA ring (alpha > 0).
   const outside = new Uint8Array(N);
   const stack: number[] = [];
-  const seed = (p: number) => { if (!filled[p] && !outside[p]) { outside[p] = 1; stack.push(p); } };
+  const seed = (p: number) => { if (rgba[p * 4 + 3] === 0 && !outside[p]) { outside[p] = 1; stack.push(p); } };
   for (let x = 0; x < W; x++) { seed(x); seed((H - 1) * W + x); }
   for (let y = 0; y < H; y++) { seed(y * W); seed(y * W + W - 1); }
   while (stack.length) {
@@ -198,34 +201,36 @@ export function bleedColors(rgba: Buffer, width: number, height: number, radius:
     if (y < H - 1) seed(p + W);
   }
 
-  for (let pass = 0; pass < r; pass++) {
-    const toFill: number[] = [];
-    const cols: number[] = [];
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const p = y * W + x;
-        if (filled[p] || !outside[p]) continue;
-        let rr = 0, gg = 0, bb = 0, c = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (!dx && !dy) continue;
-            const nx = x + dx, ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-            const np = ny * W + nx;
-            if (filled[np]) { const j = np * 4; rr += cur[j]; gg += cur[j + 1]; bb += cur[j + 2]; c++; }
-          }
-        }
-        if (c) { toFill.push(p); cols.push((rr / c) | 0, (gg / c) | 0, (bb / c) | 0); }
-      }
-    }
-    if (!toFill.length) break;
-    for (let k = 0; k < toFill.length; k++) {
-      const p = toFill[k], i = p * 4;
-      cur[i] = cols[k * 3]; cur[i + 1] = cols[k * 3 + 1]; cur[i + 2] = cols[k * 3 + 2]; cur[i + 3] = 255;
-      filled[p] = 1;
-    }
+  // Distance transform carrying the nearest solid source pixel.
+  const INF = 1e9, D1 = 1, D2 = Math.SQRT2;
+  const dist = new Float64Array(N).fill(INF);
+  const src = new Int32Array(N).fill(-1);
+  for (let p = 0; p < N; p++) if (rgba[p * 4 + 3] >= ALPHA_MIN) { dist[p] = 0; src[p] = p; }
+
+  const relax = (p: number, q: number, d: number) => {
+    if (src[q] >= 0 && dist[q] + d < dist[p]) { dist[p] = dist[q] + d; src[p] = src[q]; }
+  };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const p = y * W + x;
+    if (x > 0) relax(p, p - 1, D1);
+    if (y > 0) relax(p, p - W, D1);
+    if (x > 0 && y > 0) relax(p, p - W - 1, D2);
+    if (x < W - 1 && y > 0) relax(p, p - W + 1, D2);
   }
-  return Buffer.from(cur.buffer, cur.byteOffset, cur.byteLength);
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+    const p = y * W + x;
+    if (x < W - 1) relax(p, p + 1, D1);
+    if (y < H - 1) relax(p, p + W, D1);
+    if (x < W - 1 && y < H - 1) relax(p, p + W + 1, D2);
+    if (x > 0 && y < H - 1) relax(p, p + W - 1, D2);
+  }
+
+  for (let p = 0; p < N; p++) {
+    if (!outside[p] || src[p] < 0 || dist[p] > r) continue;
+    const s = src[p] * 4, i = p * 4;
+    out[i] = rgba[s]; out[i + 1] = rgba[s + 1]; out[i + 2] = rgba[s + 2]; out[i + 3] = 255;
+  }
+  return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
 }
 
 // ---------------------------------------------------------------------------
