@@ -82,8 +82,6 @@ export async function generateContourPdf(
   kissPad: number,
   perfPad: number,
   params: ContourParams,
-  bleedPad = 0,    // px the embedded image was padded on each side for bleed
-  pageBleedPx = 0, // px to extend the page past the cut so the bleed is included
 ): Promise<Buffer> {
   const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
   const needsPerf = (params.cutMode === 'perf' || params.cutMode === 'both') && !!perfSvgPath;
@@ -107,14 +105,11 @@ export async function generateContourPdf(
   // ── Determine crop region in bitmap coords ───────────────────────────────
   let cropMinX: number, cropMinY: number, cropMaxX: number, cropMaxY: number;
 
-  // Extend the page past the cut by the bleed so the extra ink is in the file.
-  const cropMargin = Math.max(CROP_MARGIN_PX, pageBleedPx);
-
   if (bbox) {
-    cropMinX = bbox.minX - cropMargin;
-    cropMinY = bbox.minY - cropMargin;
-    cropMaxX = bbox.maxX + cropMargin;
-    cropMaxY = bbox.maxY + cropMargin;
+    cropMinX = bbox.minX - CROP_MARGIN_PX;
+    cropMinY = bbox.minY - CROP_MARGIN_PX;
+    cropMaxX = bbox.maxX + CROP_MARGIN_PX;
+    cropMaxY = bbox.maxY + CROP_MARGIN_PX;
   } else {
     // Fallback: use full image + safety margin
     const maxOffsetPx = Math.max(
@@ -132,13 +127,12 @@ export async function generateContourPdf(
   const pageWidthPt  = (cropMaxX - cropMinX) * SCALE_FACTOR;
   const pageHeightPt = (cropMaxY - cropMinY) * SCALE_FACTOR;
 
-  // The embedded image was padded by `bleedPad` on each side, so its top-left
-  // sits at bitmap coord (-bleedPad, -bleedPad). Shift by -crop origin to place.
-  const imageX = (-bleedPad - cropMinX) * SCALE_FACTOR;
-  const imageY = (-bleedPad - cropMinY) * SCALE_FACTOR;
+  // Image sits at bitmap coords (0, 0); shift by -crop origin to place on page
+  const imageX = -cropMinX * SCALE_FACTOR;
+  const imageY = -cropMinY * SCALE_FACTOR;
 
-  const imageWidthPt  = (bitmapWidth  + 2 * bleedPad) * SCALE_FACTOR;
-  const imageHeightPt = (bitmapHeight + 2 * bleedPad) * SCALE_FACTOR;
+  const imageWidthPt  = bitmapWidth  * SCALE_FACTOR;
+  const imageHeightPt = bitmapHeight * SCALE_FACTOR;
 
   // Path is in bitmap coords; same offset applies
   const translateX = -cropMinX * SCALE_FACTOR;
