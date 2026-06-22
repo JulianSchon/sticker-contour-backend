@@ -178,8 +178,19 @@ const open  = (d: Uint8Array, w: number, h: number, r: number) => dilate(erode(d
  * sources. The outer (border-connected) transparent margin AND the semi-
  * transparent anti-aliased edge ring are filled/blended so the artwork edge sits
  * on the bleed colour (no white gap); interior holes are left untouched.
+ *
+ * `insideCut` (optional, length W*H, 1 = inside the cut contour) confines the
+ * bleed to OUTSIDE the cut: pixels inside the cut — the sticker body and any
+ * negative-space pockets it encloses — are never filled, so the bleed is a
+ * clean band hugging the cut on the outside only and never paints inward.
  */
-export function bleedColors(rgba: Buffer, width: number, height: number, radius: number): Buffer {
+export function bleedColors(
+  rgba: Buffer,
+  width: number,
+  height: number,
+  radius: number,
+  insideCut?: Uint8Array,
+): Buffer {
   const W = width, H = height, N = W * H;
   const r = radius;
   const out = new Uint8Array(rgba); // working copy (RGBA)
@@ -233,6 +244,7 @@ export function bleedColors(rgba: Buffer, width: number, height: number, radius:
   // original blended onto the bleed (no white gap); all made opaque.
   for (let p = 0; p < N; p++) {
     if (!outside[p] || src[p] < 0 || dist[p] > r) continue;
+    if (insideCut && insideCut[p]) continue; // never bleed inward, into the sticker
     const s = src[p] * 4, i = p * 4;
     const a = rgba[i + 3]; // 0..(ALPHA_MIN-1)
     const inv = 255 - a;
