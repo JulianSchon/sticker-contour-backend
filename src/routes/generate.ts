@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
-import { buildBitmap } from '../services/imageProcessor';
+import { buildBitmap, bleedColors } from '../services/imageProcessor';
 import { traceBitmap } from '../services/contourTracer';
 import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf } from '../services/pdfGenerator';
@@ -209,8 +209,36 @@ router.post(
         .png()
         .toBuffer();
 
+      // ── Print bleed (production only, opt-in) ─────────────────────────────
+      // Extend edge colours past the cut so a misaligned cut lands on ink, not
+      // white substrate. The ink lives BEYOND the cut (page MediaBox) while the
+      // TrimBox marks the cut. Single stickers request it; the kiss-cut sheet
+      // does not (it packs tight by the cut and the backing absorbs miscuts).
+      const wantBleed = req.body.bleed !== 'false' && req.body.bleed !== false;
+      let pdfImage = imageForPdf;
+      let bleedPad = 0;
+      let pageBleedPx = 0;
+      if (wantBleed) {
+        const BLEED_MM = 3;
+        pageBleedPx = Math.round((BLEED_MM * 300) / 25.4); // ~35px at 300 DPI
+        const maxOffsetPx = Math.max(
+          Math.abs(params.kissOffset) || 0,
+          Math.abs(params.perfOffset) || 0,
+        );
+        bleedPad = Math.ceil(maxOffsetPx) + pageBleedPx + 4; // reach past the cut + bleed
+        const paddedRaw = await sharp(imageForPdf)
+          .ensureAlpha()
+          .extend({ top: bleedPad, bottom: bleedPad, left: bleedPad, right: bleedPad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        const bledRaw = bleedColors(paddedRaw.data, paddedRaw.info.width, paddedRaw.info.height, bleedPad);
+        pdfImage = await sharp(bledRaw, {
+          raw: { width: paddedRaw.info.width, height: paddedRaw.info.height, channels: 4 },
+        }).png().toBuffer();
+      }
+
       const pdfBuffer = await generateContourPdf(
-        imageForPdf,
+        pdfImage,
         kissSvgPath,
         perfSvgPath,
         unpaddedW,
@@ -219,7 +247,9 @@ router.post(
         originalHeight,
         kissPad,
         perfPad,
-        params
+        params,
+        bleedPad,
+        pageBleedPx,
       );
 
       res.setHeader('Content-Type', 'application/pdf');

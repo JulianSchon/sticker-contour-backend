@@ -163,6 +163,72 @@ const close = (d: Uint8Array, w: number, h: number, r: number) => erode(dilate(d
 const open  = (d: Uint8Array, w: number, h: number, r: number) => dilate(erode(d, w, h, r), w, h, r);
 
 // ---------------------------------------------------------------------------
+// Print bleed: extend the artwork's edge colours outward into the surrounding
+// transparent margin, so a slightly misaligned cut still lands on ink instead
+// of bare (white) sticker material. The bleed lives BEYOND the cut (TrimBox)
+// and is trimmed off — never shown to the customer. Operates on raw RGBA.
+// ---------------------------------------------------------------------------
+
+/**
+ * Grows opaque colours outward by `radius` px via layered dilation. Each newly
+ * filled pixel takes the average colour of its already-filled neighbours. Only
+ * the OUTER (border-connected) transparent region is filled — interior holes
+ * are left untouched.
+ */
+export function bleedColors(rgba: Buffer, width: number, height: number, radius: number): Buffer {
+  const W = width, H = height, N = W * H;
+  const r = Math.round(radius);
+  const cur = new Uint8Array(rgba); // working copy (RGBA)
+  if (r <= 0) return Buffer.from(cur.buffer, cur.byteOffset, cur.byteLength);
+
+  const filled = new Uint8Array(N);
+  for (let p = 0; p < N; p++) filled[p] = rgba[p * 4 + 3] !== 0 ? 1 : 0;
+
+  // Outer (border-connected) transparent region — never fill interior holes.
+  const outside = new Uint8Array(N);
+  const stack: number[] = [];
+  const seed = (p: number) => { if (!filled[p] && !outside[p]) { outside[p] = 1; stack.push(p); } };
+  for (let x = 0; x < W; x++) { seed(x); seed((H - 1) * W + x); }
+  for (let y = 0; y < H; y++) { seed(y * W); seed(y * W + W - 1); }
+  while (stack.length) {
+    const p = stack.pop() as number; const x = p % W, y = (p / W) | 0;
+    if (x > 0) seed(p - 1);
+    if (x < W - 1) seed(p + 1);
+    if (y > 0) seed(p - W);
+    if (y < H - 1) seed(p + W);
+  }
+
+  for (let pass = 0; pass < r; pass++) {
+    const toFill: number[] = [];
+    const cols: number[] = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = y * W + x;
+        if (filled[p] || !outside[p]) continue;
+        let rr = 0, gg = 0, bb = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const np = ny * W + nx;
+            if (filled[np]) { const j = np * 4; rr += cur[j]; gg += cur[j + 1]; bb += cur[j + 2]; c++; }
+          }
+        }
+        if (c) { toFill.push(p); cols.push((rr / c) | 0, (gg / c) | 0, (bb / c) | 0); }
+      }
+    }
+    if (!toFill.length) break;
+    for (let k = 0; k < toFill.length; k++) {
+      const p = toFill[k], i = p * 4;
+      cur[i] = cols[k * 3]; cur[i + 1] = cols[k * 3 + 1]; cur[i + 2] = cols[k * 3 + 2]; cur[i + 3] = 255;
+      filled[p] = 1;
+    }
+  }
+  return Buffer.from(cur.buffer, cur.byteOffset, cur.byteLength);
+}
+
+// ---------------------------------------------------------------------------
 // Interior hole fill via BFS from edges
 // ---------------------------------------------------------------------------
 
