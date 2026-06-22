@@ -214,7 +214,12 @@ router.post(
       // white substrate. The ink lives BEYOND the cut (page MediaBox) while the
       // TrimBox marks the cut. Single stickers request it; the kiss-cut sheet
       // does not (it packs tight by the cut and the backing absorbs miscuts).
-      const wantBleed = req.body.bleed !== 'false' && req.body.bleed !== false;
+      //
+      // Only when the cut hugs the artwork (offset ≤ 0). A positive offset is an
+      // intentional white border/margin, which the bleed would otherwise fill.
+      const bleedRequested = req.body.bleed !== 'false' && req.body.bleed !== false;
+      const outerOffsetPx = params.cutMode === 'kiss' ? params.kissOffset : params.perfOffset;
+      const wantBleed = bleedRequested && outerOffsetPx <= 0;
       let pdfImage = imageForPdf;
       let bleedPad = 0;
       let pageBleedPx = 0;
