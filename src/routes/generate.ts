@@ -236,9 +236,26 @@ router.post(
           .extend({ top: bleedPad, bottom: bleedPad, left: bleedPad, right: bleedPad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .raw()
           .toBuffer({ resolveWithObject: true });
-        const bledRaw = bleedColors(paddedRaw.data, paddedRaw.info.width, paddedRaw.info.height, bleedPad);
+        const pw = paddedRaw.info.width, ph = paddedRaw.info.height;
+
+        // Rasterise the outer cut contour into an "inside the cut" mask so the
+        // bleed only fills OUTSIDE the cut (never the sticker body / negative
+        // pockets). The cut path is in unpadded coords; shift it by bleedPad to
+        // match the padded bitmap.
+        const outerCutPath = (params.cutMode === 'kiss' ? kissSvgPath : perfSvgPath) ?? kissSvgPath;
+        const maskSvg = Buffer.from(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">` +
+          `<path transform="translate(${bleedPad},${bleedPad})" d="${outerCutPath}" fill="#fff" fill-rule="nonzero"/></svg>`,
+        );
+        const maskRaw = await sharp(maskSvg).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const insideCut = new Uint8Array(pw * ph);
+        for (let p = 0; p < insideCut.length; p++) insideCut[p] = maskRaw.data[p * 4 + 3] > 127 ? 1 : 0;
+
+        // Radius is the 3mm bleed band (pageBleedPx) — not bleedPad, which also
+        // includes the offset reach + padding and would over-extend the colour.
+        const bledRaw = bleedColors(paddedRaw.data, pw, ph, pageBleedPx, insideCut);
         pdfImage = await sharp(bledRaw, {
-          raw: { width: paddedRaw.info.width, height: paddedRaw.info.height, channels: 4 },
+          raw: { width: pw, height: ph, channels: 4 },
         }).png().toBuffer();
       }
 
