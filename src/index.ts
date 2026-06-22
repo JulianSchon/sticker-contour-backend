@@ -3,6 +3,7 @@ import cors from 'cors';
 import generateRouter from './routes/generate';
 import printPlanningRouter from './routes/printPlanning';
 import enhanceRouter from './routes/enhance';
+import removeBgRouter from './routes/removeBg';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -37,6 +38,7 @@ app.use(express.json());
 app.use('/api', generateRouter);
 app.use('/api', printPlanningRouter);
 app.use('/api', enhanceRouter);
+app.use('/api', removeBgRouter);
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
