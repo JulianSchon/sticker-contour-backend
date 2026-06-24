@@ -56,7 +56,7 @@ const ROLAND_BOT_GAP_MM  = 4;    // gap from rect right edge to BR circle left e
 // ---------------------------------------------------------------------------
 const GRAPHTEC_MARK_LEN_MM = 20;   // L arm length
 const GRAPHTEC_MARK_W_MM   = 1.0;  // line thickness
-const GRAPHTEC_MARGIN_MM   = 25;   // top + bottom band
+const GRAPHTEC_MARGIN_MM   = 30;   // top + bottom band = inset_y(7)+arm(20)+3mm gap (full mark stays in band)
 const GRAPHTEC_INSET_X_MM  = 10;   // L corner inset from foil side edges
 const GRAPHTEC_INSET_Y_MM  = 7;    // L corner inset from outer edge of the band
 
