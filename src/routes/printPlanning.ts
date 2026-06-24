@@ -52,6 +52,15 @@ const ROLAND_BOT_H_MM    = 4;    // bottom-right rectangle height
 const ROLAND_BOT_GAP_MM  = 4;    // gap from rect right edge to BR circle left edge
 
 // ---------------------------------------------------------------------------
+// Graphtec CE8000 constants (must match frontend/src/lib/graphtecMarks.ts)
+// ---------------------------------------------------------------------------
+const GRAPHTEC_MARK_LEN_MM = 20;   // L arm length
+const GRAPHTEC_MARK_W_MM   = 1.0;  // line thickness
+const GRAPHTEC_MARGIN_MM   = 25;   // top + bottom band
+const GRAPHTEC_INSET_X_MM  = 10;   // L corner inset from foil side edges
+const GRAPHTEC_INSET_Y_MM  = 7;    // L corner inset from outer edge of the band
+
+// ---------------------------------------------------------------------------
 // POST /api/print-planning/pdf-info
 // ---------------------------------------------------------------------------
 router.post(
@@ -88,7 +97,7 @@ interface ExportLayout {
   foilWidthMm: number;
   totalLengthMm: number;
   copies: ExportCopy[];
-  regmarkType?: 'opos' | 'roland' | 'none';
+  regmarkType?: 'opos' | 'roland' | 'graphtec' | 'none';
 }
 
 router.post(
@@ -112,6 +121,7 @@ router.post(
       const MM_TO_PT = 72 / 25.4;
 
       const marginMm = regmarkType === 'roland' ? ROLAND_MARGIN_MM
+        : regmarkType === 'graphtec' ? GRAPHTEC_MARGIN_MM
         : regmarkType === 'none' ? 0
         : OPOS_MARGIN_MM;
       const bleedMm  = regmarkType === 'roland' ? ROLAND_BLEED_MM  : 0;
@@ -163,6 +173,8 @@ router.post(
       // ── Draw registration marks ──────────────────────────────────────────
       if (regmarkType === 'roland') {
         drawRolandMarks(outPage, foilWidthMm, totalLengthMm, marginPt, contentHPt, pageHeightPt, bleedPt, MM_TO_PT);
+      } else if (regmarkType === 'graphtec') {
+        drawGraphtecMarks(outPage, foilWidthMm, marginPt, contentHPt, pageHeightPt, MM_TO_PT);
       } else if (regmarkType !== 'none') {
         drawOposMarks(outPage, foilWidthMm, marginPt, contentHPt, pageHeightPt, MM_TO_PT);
       }
@@ -296,6 +308,56 @@ function drawRolandMarks(
     height: botRectH,
     color: rgb(0, 0, 0),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Graphtec CE8000 mark drawing — four Type 1 L-marks at the sheet corners.
+// Built as a loop over a list of mark rows so segment marks can be added later.
+// ---------------------------------------------------------------------------
+function drawGraphtecMarks(
+  page: ReturnType<PDFDocument['addPage']>,
+  foilWidthMm: number,
+  marginPt: number,
+  contentHPt: number,
+  pageHeightPt: number,
+  MM_TO_PT: number,
+): void {
+  const lLen   = GRAPHTEC_MARK_LEN_MM * MM_TO_PT;
+  const lW     = GRAPHTEC_MARK_W_MM   * MM_TO_PT;
+  const insetX = GRAPHTEC_INSET_X_MM  * MM_TO_PT;
+  const insetY = GRAPHTEC_INSET_Y_MM  * MM_TO_PT;
+  const foilWPt = foilWidthMm * MM_TO_PT;
+
+  const leftX  = insetX;                 // L corner X, left marks
+  const rightX = foilWPt - insetX;       // L corner X, right marks
+  // pdf-lib Y is UP. Top band at top of page, bottom band at bottom.
+  const topY   = pageHeightPt - insetY;  // L corner Y, top band
+  const botY   = insetY;                 // L corner Y, bottom band
+
+  // dx/dy = arm directions toward the content (pdf coords):
+  //   top marks: content BELOW  → dy = -1 ; bottom marks: content ABOVE → dy = +1
+  //   left marks point right (+1), right marks point left (-1)
+  const marks = [
+    { cx: leftX,  cy: topY, dx:  1, dy: -1 }, // TL
+    { cx: rightX, cy: topY, dx: -1, dy: -1 }, // TR
+    { cx: leftX,  cy: botY, dx:  1, dy:  1 }, // BL
+    { cx: rightX, cy: botY, dx: -1, dy:  1 }, // BR
+  ];
+
+  for (const m of marks) {
+    // vertical arm (thickness lW, length lLen) — thickness on the dx side
+    page.drawRectangle({
+      x: m.dx > 0 ? m.cx : m.cx - lW,
+      y: m.dy > 0 ? m.cy : m.cy - lLen,
+      width: lW, height: lLen, color: rgb(0, 0, 0),
+    });
+    // horizontal arm (length lLen, thickness lW) — thickness on the dy side
+    page.drawRectangle({
+      x: m.dx > 0 ? m.cx : m.cx - lLen,
+      y: m.dy > 0 ? m.cy : m.cy - lW,
+      width: lLen, height: lW, color: rgb(0, 0, 0),
+    });
+  }
 }
 
 export default router;
