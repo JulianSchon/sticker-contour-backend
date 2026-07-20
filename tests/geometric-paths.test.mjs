@@ -11,6 +11,13 @@ check('oval has two distinct radii (rx != ry)', (() => {
   const m = oval.match(/A ([\d.]+) ([\d.]+)/);
   return m && Math.abs(Number(m[1]) - Number(m[2])) > 1;
 })());
+// oval must be a horizontal ellipse (rx > ry) even on a SQUARE image — otherwise
+// it collapses to a circle and is indistinguishable from the Circle shape.
+check('oval is horizontal (rx > ry) on a square image', (() => {
+  const sqOval = buildGeometricPath(300, 300, 'oval', 0, 100, 0, 0);
+  const m = sqOval.match(/A ([\d.]+) ([\d.]+)/);
+  return m && Number(m[1]) > Number(m[2]) + 1;
+})());
 
 // square: now rounded (contains arcs), radius small and < 15% of side
 const sq = buildGeometricPath(300, 300, 'square', 0, 100, 0, 0);
