@@ -30,13 +30,32 @@ export function buildGeometricPath(
       return `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy} Z`;
     }
 
+    case 'oval': {
+      const cx = ox + sw / 2;
+      const cy = oy + sh / 2;
+      const rx = sw / 2 + o;
+      const ry = sh / 2 + o;
+      if (rx <= 0 || ry <= 0) return '';
+      return `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx - rx} ${cy} Z`;
+    }
+
     case 'square': {
       const x = ox - o;
       const y = oy - o;
       const w = sw + o * 2;
       const h = sh + o * 2;
       if (w <= 0 || h <= 0) return '';
-      return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+      // Minimal corner radius so the cutter blade doesn't snag on sharp corners —
+      // barely visible (~2% of the shorter side, capped at half the side). Machine
+      // benefit only, not a customer-facing design choice.
+      const r = Math.min(Math.min(sw, sh) * 0.02, Math.min(w, h) / 2);
+      if (r <= 0) {
+        return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+      }
+      return `M ${x + r} ${y} L ${x + w - r} ${y} A ${r} ${r} 0 0 1 ${x + w} ${y + r} `
+        + `L ${x + w} ${y + h - r} A ${r} ${r} 0 0 1 ${x + w - r} ${y + h} `
+        + `L ${x + r} ${y + h} A ${r} ${r} 0 0 1 ${x} ${y + h - r} `
+        + `L ${x} ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`;
     }
 
     case 'triangle': {

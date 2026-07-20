@@ -45,6 +45,7 @@ export function clampParams(raw: {
   const shapeType = raw.shapeType === 'circle' ? 'circle' as const
     : raw.shapeType === 'square'   ? 'square' as const
     : raw.shapeType === 'triangle' ? 'triangle' as const
+    : raw.shapeType === 'oval'     ? 'oval' as const
     : 'contour' as const;
 
   const shapeSize = typeof raw.shapeSize === 'number'

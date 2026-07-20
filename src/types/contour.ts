@@ -1,4 +1,4 @@
-export type ShapeType = 'contour' | 'circle' | 'square' | 'triangle';
+export type ShapeType = 'contour' | 'circle' | 'square' | 'triangle' | 'oval';
 
 export interface ContourParams {
   threshold: number;      // 1-255
