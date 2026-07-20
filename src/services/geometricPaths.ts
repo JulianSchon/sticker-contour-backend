@@ -33,8 +33,11 @@ export function buildGeometricPath(
     case 'oval': {
       const cx = ox + sw / 2;
       const cy = oy + sh / 2;
+      // Always a horizontal ellipse (wider than tall, ~1:0.7) so it reads as an
+      // "oval" regardless of image aspect — distinct from Circle even on a square
+      // image. Minor axis capped to the box height so it still fits.
       const rx = sw / 2 + o;
-      const ry = sh / 2 + o;
+      const ry = Math.min((sw / 2) * 0.7, sh / 2) + o;
       if (rx <= 0 || ry <= 0) return '';
       return `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx - rx} ${cy} Z`;
     }
