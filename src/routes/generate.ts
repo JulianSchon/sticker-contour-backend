@@ -5,6 +5,7 @@ import { buildBitmap, bleedColors } from '../services/imageProcessor';
 import { traceBitmap } from '../services/contourTracer';
 import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf } from '../services/pdfGenerator';
+import { sampleEdgeColor } from '../services/edgeColor';
 import { translateSvgPath } from '../utils/svgPathParser';
 import { dropInnerHoles, keepOutermostPath } from '../utils/pathFilter';
 import { buildGeometricPath, geometricPad } from '../services/geometricPaths';
@@ -209,6 +210,18 @@ router.post(
         .png()
         .toBuffer();
 
+      // For geometric shapes the cut can extend past the artwork. Sample the
+      // image's border color so the PDF fills the body with the continuing
+      // background instead of a bare gap. Contour cuts hug the art — no fill.
+      let bodyFill: { r: number; g: number; b: number } | undefined;
+      if (params.shapeType !== 'contour') {
+        const raw = await sharp(imageForPdf)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        bodyFill = sampleEdgeColor(raw.data, raw.info.width, raw.info.height);
+      }
+
       // ── Print bleed (production only, opt-in) ─────────────────────────────
       // Extend edge colours past the cut so a misaligned cut lands on ink, not
       // white substrate. The ink lives BEYOND the cut (page MediaBox) while the
@@ -272,6 +285,7 @@ router.post(
         params,
         bleedPad,
         pageBleedPx,
+        bodyFill,
       );
 
       res.setHeader('Content-Type', 'application/pdf');

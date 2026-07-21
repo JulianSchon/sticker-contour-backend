@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import type { ContourParams } from '../types/contour';
+import type { EdgeColor } from './edgeColor';
 
 const DPI = 300;
 const SCALE_FACTOR = 72 / DPI; // pixels → PDF points
@@ -84,6 +85,7 @@ export async function generateContourPdf(
   params: ContourParams,
   bleedPad = 0,    // px the embedded image was padded on each side for bleed
   pageBleedPx = 0, // px the page extends past the cut; the cut becomes the TrimBox
+  bodyFill?: EdgeColor, // fill the body path with this color UNDER the image (geometric shapes)
 ): Promise<Buffer> {
   const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
   const needsPerf = (params.cutMode === 'perf' || params.cutMode === 'both') && !!perfSvgPath;
@@ -163,6 +165,19 @@ export async function generateContourPdf(
   doc.addSpotColor('CutContour',     0, 100,   0, 0);
   // @ts-expect-error
   doc.addSpotColor('PerfCutContour', 100,   0, 0, 0);
+
+  // Body fill UNDER the image: for geometric shapes the cut can extend past the
+  // artwork, leaving a gap. Fill it with the image's sampled edge color so the
+  // background continues to the cut edge (matches the preview). Body path choice
+  // mirrors renderSticker: perf (outer) if present, else kiss.
+  if (bodyFill) {
+    const bodySvg = needsPerf && perfSvgPath ? perfSvgPath : kissSvgPath;
+    doc.save();
+    doc.translate(translateX, translateY);
+    doc.scale(SCALE_FACTOR);
+    doc.path(bodySvg).fillColor([bodyFill.r, bodyFill.g, bodyFill.b]).fill();
+    doc.restore();
+  }
 
   doc.image(imageBuffer, imageX, imageY, { width: imageWidthPt, height: imageHeightPt });
 
