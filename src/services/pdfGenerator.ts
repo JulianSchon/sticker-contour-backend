@@ -10,10 +10,10 @@ const PAGE_MARGIN_INCHES = 0.1; // ~3 mm
 const CROP_MARGIN_PX = 3;
 
 // ---------------------------------------------------------------------------
-// SVG path bounding box (handles M, L, H, V, C, Q, Z and relative variants)
+// SVG path bounding box (handles M, L, H, V, C, Q, A, Z and relative variants)
 // ---------------------------------------------------------------------------
-function computePathBBox(pathData: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  const tokenRe = /([MmLlHhVvCcQqZz])|(-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?)/gi;
+export function computePathBBox(pathData: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const tokenRe = /([MmLlHhVvCcQqAaZz])|(-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?)/gi;
   const tokens: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = tokenRe.exec(pathData)) !== null) tokens.push(m[0]);
@@ -29,11 +29,41 @@ function computePathBBox(pathData: string): { minX: number; minY: number; maxX: 
     if (y > maxY) maxY = y;
   }
 
+  // Bound an elliptical arc (endpoint form). Converts to centre form (SVG spec
+  // F.6.5) and adds the ellipse's axis-aligned extrema. For a full circle/oval
+  // (drawn as two 180° arcs) this is exact; for a partial arc it over-bounds by
+  // at most a radius — which only pads the page slightly, never crops content.
+  function addArc(x1: number, y1: number, rxIn: number, ryIn: number, rotDeg: number, laf: number, sf: number, x2: number, y2: number) {
+    let rx = Math.abs(rxIn), ry = Math.abs(ryIn);
+    if (rx === 0 || ry === 0) { addPt(x2, y2); return; }
+    const phi = (rotDeg * Math.PI) / 180;
+    const cosP = Math.cos(phi), sinP = Math.sin(phi);
+    const dx = (x1 - x2) / 2, dy = (y1 - y2) / 2;
+    const x1p = cosP * dx + sinP * dy;
+    const y1p = -sinP * dx + cosP * dy;
+    let rx2 = rx * rx, ry2 = ry * ry;
+    const lambda = (x1p * x1p) / rx2 + (y1p * y1p) / ry2;
+    if (lambda > 1) { const s = Math.sqrt(lambda); rx *= s; ry *= s; rx2 = rx * rx; ry2 = ry * ry; }
+    let numer = rx2 * ry2 - rx2 * y1p * y1p - ry2 * x1p * x1p;
+    if (numer < 0) numer = 0;
+    const den = rx2 * y1p * y1p + ry2 * x1p * x1p;
+    const coef = (den === 0 ? 0 : Math.sqrt(numer / den)) * (laf !== sf ? 1 : -1);
+    const cxp = coef * (rx * y1p / ry);
+    const cyp = coef * (-ry * x1p / rx);
+    const ecx = cosP * cxp - sinP * cyp + (x1 + x2) / 2;
+    const ecy = sinP * cxp + cosP * cyp + (y1 + y2) / 2;
+    // Half-extents of the (possibly rotated) ellipse's bounding box.
+    const hx = Math.sqrt(rx2 * cosP * cosP + ry2 * sinP * sinP);
+    const hy = Math.sqrt(rx2 * sinP * sinP + ry2 * cosP * cosP);
+    addPt(ecx - hx, ecy - hy);
+    addPt(ecx + hx, ecy + hy);
+  }
+
   function num(): number { return parseFloat(tokens[i++]); }
 
   while (i < tokens.length) {
     const cmd = tokens[i];
-    if (!/^[MmLlHhVvCcQqZz]$/.test(cmd)) { i++; continue; }
+    if (!/^[MmLlHhVvCcQqAaZz]$/.test(cmd)) { i++; continue; }
     i++;
     switch (cmd) {
       case 'M': { cx = num(); cy = num(); addPt(cx, cy); break; }
@@ -63,6 +93,19 @@ function computePathBBox(pathData: string): { minX: number; minY: number; maxX: 
         const dx1 = num(), dy1 = num(), dx = num(), dy = num();
         addPt(cx + dx1, cy + dy1); addPt(cx + dx, cy + dy);
         cx += dx; cy += dy; break;
+      }
+      case 'A': {
+        const rx = num(), ry = num(), rot = num(), laf = num(), sf = num(), x = num(), y = num();
+        addArc(cx, cy, rx, ry, rot, laf, sf, x, y);
+        addPt(x, y);
+        cx = x; cy = y; break;
+      }
+      case 'a': {
+        const rx = num(), ry = num(), rot = num(), laf = num(), sf = num(), dx = num(), dy = num();
+        const x = cx + dx, y = cy + dy;
+        addArc(cx, cy, rx, ry, rot, laf, sf, x, y);
+        addPt(x, y);
+        cx = x; cy = y; break;
       }
       case 'Z': case 'z': break;
     }
