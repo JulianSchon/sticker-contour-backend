@@ -4,11 +4,12 @@ import sharp from 'sharp';
 import { buildBitmap, bleedColors } from '../services/imageProcessor';
 import { traceBitmap } from '../services/contourTracer';
 import { clampParams } from '../services/pathSmoother';
-import { generateContourPdf } from '../services/pdfGenerator';
+import { generateContourPdf, computePathBBox } from '../services/pdfGenerator';
 import { sampleEdgeColor } from '../services/edgeColor';
 import { translateSvgPath } from '../utils/svgPathParser';
 import { dropInnerHoles, keepOutermostPath } from '../utils/pathFilter';
 import { buildGeometricPath, geometricPad } from '../services/geometricPaths';
+import { cmToTargetPx, geometricImageScale, MAX_TARGET_PX } from '../services/sizeScaling';
 import type { ContourPreviewResponse } from '../types/contour';
 
 const router = Router();
@@ -144,8 +145,52 @@ router.post(
       });
 
       const meta = await sharp(req.file.buffer).metadata();
-      const originalWidth = meta.width ?? 0;
-      const originalHeight = meta.height ?? 0;
+      const nativeWidth = meta.width ?? 0;
+      const nativeHeight = meta.height ?? 0;
+
+      // ── Physical size: scale the working image so pixels ÷ 300 DPI = the
+      // customer's chosen cm. Geometric → the cut OUTLINE is the chosen size;
+      // contour → the ARTWORK is the chosen size. Absent/≤0 cm → unchanged.
+      const widthCm = parseFloat(req.body.widthCm);
+      const heightCm = parseFloat(req.body.heightCm);
+      const hasCm = widthCm > 0 && heightCm > 0 && nativeWidth > 0 && nativeHeight > 0;
+
+      let workingBuffer = req.file.buffer;
+      let originalWidth = nativeWidth;
+      let originalHeight = nativeHeight;
+
+      if (hasCm) {
+        const target = cmToTargetPx(widthCm, heightCm);
+        if (params.shapeType === 'contour') {
+          originalWidth = target.w;
+          originalHeight = target.h;
+        } else {
+          const usesPerf = params.cutMode === 'perf' || params.cutMode === 'both';
+          const outerOffset = usesPerf ? params.perfOffset : params.kissOffset;
+          const withO = computePathBBox(buildGeometricPath(nativeWidth, nativeHeight, params.shapeType, outerOffset, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY));
+          const noO = computePathBBox(buildGeometricPath(nativeWidth, nativeHeight, params.shapeType, 0, params.shapeSize, params.shapeOffsetX, params.shapeOffsetY));
+          if (withO && noO) {
+            let { sx, sy } = geometricImageScale(
+              { w: withO.maxX - withO.minX, h: withO.maxY - withO.minY },
+              { w: noO.maxX - noO.minX, h: noO.maxY - noO.minY },
+              target,
+            );
+            // Circle and square are isotropic — keep them undistorted.
+            if (params.shapeType === 'circle' || params.shapeType === 'square') {
+              const s = Math.min(sx, sy); sx = s; sy = s;
+            }
+            originalWidth = Math.max(1, Math.min(MAX_TARGET_PX, Math.round(nativeWidth * sx)));
+            originalHeight = Math.max(1, Math.min(MAX_TARGET_PX, Math.round(nativeHeight * sy)));
+          }
+        }
+        if (originalWidth !== nativeWidth || originalHeight !== nativeHeight) {
+          workingBuffer = await sharp(req.file.buffer)
+            .rotate()
+            .resize(originalWidth, originalHeight, { fit: 'fill' })
+            .png()
+            .toBuffer();
+        }
+      }
 
       let kissSvgPath: string;
       let perfSvgPath: string | null = null;
@@ -174,9 +219,10 @@ router.post(
         };
 
         const kissBitmap = await buildBitmap(
-          req.file.buffer,
+          workingBuffer,
           params.threshold,
-          needsKiss ? params.kissOffset : 0
+          needsKiss ? params.kissOffset : 0,
+          hasCm ? MAX_TARGET_PX : undefined
         );
         kissPad = kissBitmap.pad;
         unpaddedW = kissBitmap.width - kissPad * 2;
@@ -190,9 +236,10 @@ router.post(
         perfPad = kissPad;
         if (needsPerf) {
           const perfBitmap = await buildBitmap(
-            req.file.buffer,
+            workingBuffer,
             params.threshold,
-            params.perfOffset
+            params.perfOffset,
+            hasCm ? MAX_TARGET_PX : undefined
           );
           perfPad = perfBitmap.pad;
           perfSvgPath = applyEnclose(translateSvgPath(
@@ -204,7 +251,7 @@ router.post(
 
       // Resize image to bitmap dimensions before PDF embedding — avoids
       // encoding a full-res (e.g. 6000px) image in a 2000px-based PDF.
-      const imageForPdf = await sharp(req.file.buffer)
+      const imageForPdf = await sharp(workingBuffer)
         .rotate()
         .resize(unpaddedW, unpaddedH, { fit: 'fill' })
         .png()

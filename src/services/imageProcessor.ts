@@ -320,7 +320,8 @@ function fillInteriorHoles(data: Uint8Array, width: number, height: number): Uin
 export async function buildBitmap(
   inputBuffer: Buffer,
   threshold: number,   // user slider (used as multiplier on Otsu for solid images)
-  offsetPx: number
+  offsetPx: number,
+  maxDim: number = MAX_DIM
 ): Promise<ProcessedBitmap> {
   // PAD must be large enough to contain the full offset expansion.
   // Without enough pad the dilation hits the canvas edge and gets clipped.
@@ -333,10 +334,10 @@ export async function buildBitmap(
   const hasAlpha = meta.hasAlpha ?? false;
 
   let resized: Buffer;
-  if (rw > MAX_DIM || rh > MAX_DIM) {
+  if (rw > maxDim || rh > maxDim) {
     const result = await sharp(inputBuffer)
       .rotate()
-      .resize(MAX_DIM, MAX_DIM, { fit: 'inside', withoutEnlargement: true })
+      .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
       .png()
       .toBuffer({ resolveWithObject: true });
     resized = result.data; rw = result.info.width; rh = result.info.height;
