@@ -129,6 +129,7 @@ export async function generateContourPdf(
   bleedPad = 0,    // px the embedded image was padded on each side for bleed
   pageBleedPx = 0, // px the page extends past the cut; the cut becomes the TrimBox
   bodyFill?: EdgeColor, // fill the body path with this color UNDER the image (geometric shapes)
+  bleedColor?: EdgeColor, // fill the bleed band OUTSIDE the cut with this color (all shapes)
 ): Promise<Buffer> {
   const needsKiss = params.cutMode === 'kiss' || params.cutMode === 'both';
   const needsPerf = (params.cutMode === 'perf' || params.cutMode === 'both') && !!perfSvgPath;
@@ -219,6 +220,22 @@ export async function generateContourPdf(
     doc.translate(translateX, translateY);
     doc.scale(SCALE_FACTOR);
     doc.path(bodySvg).fillColor([bodyFill.r, bodyFill.g, bodyFill.b]).fill();
+    doc.restore();
+  }
+
+  // Bleed band: fill page-rect MINUS the outer cut path (even-odd) with the
+  // sampled edge colour, so a misaligned cut lands on ink. Even-odd leaves the
+  // inside of the cut untouched. The cut is the TrimBox (set below); the band is
+  // trimmed in production.
+  if (bleedColor && bbox && pageBleedPx > 0) {
+    const outerCut = needsPerf && perfSvgPath ? perfSvgPath : kissSvgPath;
+    doc.save();
+    doc.translate(translateX, translateY);
+    doc.scale(SCALE_FACTOR);
+    doc.rect(cropMinX, cropMinY, cropMaxX - cropMinX, cropMaxY - cropMinY);
+    doc.path(outerCut);
+    doc.fillColor([bleedColor.r, bleedColor.g, bleedColor.b]);
+    doc.fill('even-odd');
     doc.restore();
   }
 
