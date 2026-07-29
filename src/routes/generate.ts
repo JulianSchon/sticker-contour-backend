@@ -1,11 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
-import { buildBitmap, bleedColors } from '../services/imageProcessor';
+import { buildBitmap } from '../services/imageProcessor';
 import { traceBitmap } from '../services/contourTracer';
 import { clampParams } from '../services/pathSmoother';
 import { generateContourPdf, computePathBBox } from '../services/pdfGenerator';
-import { sampleEdgeColor } from '../services/edgeColor';
+import { sampleArtworkEdgeColor } from '../services/edgeColor';
 import { translateSvgPath } from '../utils/svgPathParser';
 import { dropInnerHoles, keepOutermostPath } from '../utils/pathFilter';
 import { buildGeometricPath, geometricPad } from '../services/geometricPaths';
@@ -257,70 +257,26 @@ router.post(
         .png()
         .toBuffer();
 
-      // For geometric shapes the cut can extend past the artwork. Sample the
-      // image's border color so the PDF fills the body with the continuing
-      // background instead of a bare gap. Contour cuts hug the art — no fill.
-      let bodyFill: { r: number; g: number; b: number } | undefined;
-      if (params.shapeType !== 'contour') {
-        const raw = await sharp(imageForPdf)
-          .ensureAlpha()
-          .raw()
-          .toBuffer({ resolveWithObject: true });
-        bodyFill = sampleEdgeColor(raw.data, raw.info.width, raw.info.height);
-      }
+      // Sample one representative edge colour at the artwork's silhouette edge.
+      // For a transparent-background subject this is the subject's edge colour
+      // (never white → no white sliver on an edge-to-edge cut); for a fully
+      // opaque image it reduces to the outer-border colour. Used for the bleed
+      // band (all shapes) and the geometric body fill.
+      const rawForEdge = await sharp(imageForPdf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const edgeColor = sampleArtworkEdgeColor(rawForEdge.data, rawForEdge.info.width, rawForEdge.info.height);
+      const bodyFill = params.shapeType !== 'contour' ? edgeColor : undefined;
 
-      // ── Print bleed (production only, opt-in) ─────────────────────────────
-      // Extend edge colours past the cut so a misaligned cut lands on ink, not
-      // white substrate. The ink lives BEYOND the cut (page MediaBox) while the
-      // TrimBox marks the cut. Single stickers request it; the kiss-cut sheet
-      // does not (it packs tight by the cut and the backing absorbs miscuts).
-      //
-      // Only when the cut hugs the artwork (offset ≤ 0). A positive offset is an
-      // intentional white border/margin, which the bleed would otherwise fill.
+      // ── Print bleed: a thin SOLID edge-colour band OUTSIDE the cut so a
+      // misaligned cut lands on ink, not white substrate. The cut is the TrimBox;
+      // the band lives between TrimBox and MediaBox and is trimmed in production.
+      // Single stickers opt in; the kiss-cut sheet opts out (bleed=false).
       const bleedRequested = req.body.bleed !== 'false' && req.body.bleed !== false;
-      const outerOffsetPx = params.cutMode === 'kiss' ? params.kissOffset : params.perfOffset;
-      const wantBleed = bleedRequested && outerOffsetPx <= 0;
-      let pdfImage = imageForPdf;
-      let bleedPad = 0;
-      let pageBleedPx = 0;
-      if (wantBleed) {
-        const BLEED_MM = 3;
-        pageBleedPx = Math.round((BLEED_MM * 300) / 25.4); // ~35px at 300 DPI
-        const maxOffsetPx = Math.max(
-          Math.abs(params.kissOffset) || 0,
-          Math.abs(params.perfOffset) || 0,
-        );
-        bleedPad = Math.ceil(maxOffsetPx) + pageBleedPx + 4; // reach past the cut + bleed
-        const paddedRaw = await sharp(imageForPdf)
-          .ensureAlpha()
-          .extend({ top: bleedPad, bottom: bleedPad, left: bleedPad, right: bleedPad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .raw()
-          .toBuffer({ resolveWithObject: true });
-        const pw = paddedRaw.info.width, ph = paddedRaw.info.height;
-
-        // Rasterise the outer cut contour into an "inside the cut" mask so the
-        // bleed only fills OUTSIDE the cut (never the sticker body / negative
-        // pockets). The cut path is in unpadded coords; shift it by bleedPad to
-        // match the padded bitmap.
-        const outerCutPath = (params.cutMode === 'kiss' ? kissSvgPath : perfSvgPath) ?? kissSvgPath;
-        const maskSvg = Buffer.from(
-          `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">` +
-          `<path transform="translate(${bleedPad},${bleedPad})" d="${outerCutPath}" fill="#fff" fill-rule="nonzero"/></svg>`,
-        );
-        const maskRaw = await sharp(maskSvg).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-        const insideCut = new Uint8Array(pw * ph);
-        for (let p = 0; p < insideCut.length; p++) insideCut[p] = maskRaw.data[p * 4 + 3] > 127 ? 1 : 0;
-
-        // Radius is the 3mm bleed band (pageBleedPx) — not bleedPad, which also
-        // includes the offset reach + padding and would over-extend the colour.
-        const bledRaw = bleedColors(paddedRaw.data, pw, ph, pageBleedPx, insideCut);
-        pdfImage = await sharp(bledRaw, {
-          raw: { width: pw, height: ph, channels: 4 },
-        }).png().toBuffer();
-      }
+      const BLEED_MM = 3;
+      const pageBleedPx = bleedRequested ? Math.round((BLEED_MM * 300) / 25.4) : 0; // ~35px @300dpi
+      const bleedColor = bleedRequested ? edgeColor : undefined;
 
       const pdfBuffer = await generateContourPdf(
-        pdfImage,
+        imageForPdf,
         kissSvgPath,
         perfSvgPath,
         unpaddedW,
@@ -330,9 +286,10 @@ router.post(
         kissPad,
         perfPad,
         params,
-        bleedPad,
+        0,
         pageBleedPx,
         bodyFill,
+        bleedColor,
       );
 
       res.setHeader('Content-Type', 'application/pdf');
