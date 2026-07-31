@@ -30,17 +30,22 @@ export async function generateTemplatePdf(
   doc.save();
   doc.scale(MM2PT); // user units are now mm, origin top-left
 
-  // 1. whole artboard = bgColor (sheet background + baked-in bleed margin)
-  doc.rect(0, 0, template.widthMm, template.heightMm).fill(rgb);
+  // 1. white sheet / carrier (fills the whole artboard incl. the outer bleed)
+  doc.rect(0, 0, template.widthMm, template.heightMm).fill([255, 255, 255]);
 
-  // 2. design clipped to the union of the shield printed extents
+  // 2. shield interiors = bgColor. Fill the clipPaths (the printed extent, which
+  //    sits ~2mm outside the cut) so the colour bleeds past each shield cut.
+  for (const s of template.shields) doc.path(s.clipPath);
+  doc.fill(rgb);
+
+  // 3. design clipped to the union of the shield printed extents, over the colour
   doc.save();
   for (const s of template.shields) doc.path(s.clipPath);
   doc.clip();
   doc.image(designPng, 0, 0, { width: template.widthMm, height: template.heightMm });
   doc.restore();
 
-  // 3. cut lines — shields = CutContour, sheet = PerfCutContour (hairline ~0.25pt)
+  // 4. cut lines — shields = CutContour, sheet = PerfCutContour (hairline ~0.25pt)
   const hairline = 0.25 / MM2PT;
   for (const s of template.shields) {
     doc.path(s.cutPath).strokeColor('CutContour').lineWidth(hairline).undash().stroke();
